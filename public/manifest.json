@@ -1,0 +1,21 @@
+{
+  "name": "Mesa Serenity Messenger",
+  "short_name": "Mesa",
+  "description": "A mindful messenger focused on digital serenity, clarity, and peaceful communication.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#1c1b74",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
