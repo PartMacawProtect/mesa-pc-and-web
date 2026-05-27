@@ -301,30 +301,27 @@ app.post("/api/auth/register-request", async (req, res) => {
   });
 
   // Await email dispatch directly to return helpful status
-  let debugCode = "";
   let smtpError = "";
   let isMock = false;
   try {
     const result = await sendOTPEmail(normalizedEmail, code, "register");
     isMock = result.isMock;
     if (result.isMock) {
-      debugCode = code;
       if (result.error && !result.error.toLowerCase().includes("variables are not set")) {
-        smtpError = `Ошибка SMTP доставки: ${result.error}. Код для отладки: ${code}`;
+        smtpError = `Ошибка SMTP отправки: ${result.error}. Пожалуйста, обратитесь к администратору.`;
       } else {
-        smtpError = `Внимание: почта отправлена в режиме отладки (SMTP не настроен). Используйте код: ${code}`;
+        smtpError = "Регистрация успешна, код отправлен на почту.";
       }
     }
   } catch (err: any) {
-    debugCode = code;
-    smtpError = `Ошибка SMTP: ${err?.message || err}. Используйте код: ${code}`;
+    smtpError = `Ошибка отправки почты: ${err?.message || err}`;
     isMock = true;
   }
   
   return res.json({
     success: true,
     isMock,
-    debugCode,
+    debugCode: "",
     smtpError
   });
 });
@@ -417,30 +414,27 @@ app.post("/api/auth/reset-request", async (req, res) => {
   });
 
   // Await email dispatch directly to return helpful status
-  let debugCode = "";
   let smtpError = "";
   let isMock = false;
   try {
     const result = await sendOTPEmail(normalizedEmail, code, "reset");
     isMock = result.isMock;
     if (result.isMock) {
-      debugCode = code;
       if (result.error && !result.error.toLowerCase().includes("variables are not set")) {
-        smtpError = `Ошибка SMTP доставки: ${result.error}. Код для отладки: ${code}`;
+        smtpError = `Ошибка SMTP отправки: ${result.error}. Пожалуйста, обратитесь к администратору.`;
       } else {
-        smtpError = `Внимание: почта отправлена в режиме отладки (SMTP не настроен). Используйте код: ${code}`;
+        smtpError = "Запрос отправлен, код отправлен на почту.";
       }
     }
   } catch (err: any) {
-    debugCode = code;
-    smtpError = `Ошибка SMTP: ${err?.message || err}. Используйте код: ${code}`;
+    smtpError = `Ошибка отправки почты: ${err?.message || err}`;
     isMock = true;
   }
 
   return res.json({
     success: true,
     isMock,
-    debugCode,
+    debugCode: "",
     smtpError
   });
 });
@@ -477,30 +471,27 @@ app.post("/api/auth/request-otp", async (req, res) => {
   }
 
   // Await email dispatch directly to return helpful status
-  let debugCode = "";
   let smtpError = "";
   let isMock = false;
   try {
     const result = await sendOTPEmail(normalizedEmail, code, type);
     isMock = result.isMock;
     if (result.isMock) {
-      debugCode = code;
       if (result.error && !result.error.toLowerCase().includes("variables are not set")) {
-        smtpError = `Ошибка SMTP доставки: ${result.error}. Код для отладки: ${code}`;
+        smtpError = `Ошибка SMTP отправки: ${result.error}. Пожалуйста, обратитесь к администратору.`;
       } else {
-        smtpError = `Внимание: почта отправлена в режиме отладки (SMTP не настроен). Используйте код: ${code}`;
+        smtpError = "Код отправлен на почту.";
       }
     }
   } catch (err: any) {
-    debugCode = code;
-    smtpError = `Ошибка SMTP: ${err?.message || err}. Используйте код: ${code}`;
+    smtpError = `Ошибка отправки почты: ${err?.message || err}`;
     isMock = true;
   }
 
   return res.json({
     success: true,
     isMock,
-    debugCode,
+    debugCode: "",
     smtpError
   });
 });

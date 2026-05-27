@@ -144,19 +144,6 @@ export default function VerifyView({
             {email && <span className="block text-primary font-bold mt-1 text-xs">{email}</span>}
           </p>
 
-          {/* Autonomy Offline Verification Guidance Key */}
-          {smtpError && (
-            <div className="mb-6 w-full p-4 rounded-2xl bg-indigo-50/70 dark:bg-neutral-900 border border-indigo-100 dark:border-indigo-950 text-left flex flex-col gap-2.5 text-indigo-950 dark:text-indigo-200">
-              <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 leading-none">
-                <span className="material-symbols-outlined text-xs">offline_pin</span>
-                Mesa Autonomy Verification
-              </span>
-              <p className="text-[10px] leading-relaxed opacity-90 font-medium">
-                {smtpError}
-              </p>
-            </div>
-          )}
-
           {/* Verification Form */}
           <form className="w-full flex flex-col gap-6" onSubmit={handleSubmit}>
             <OtpContainer 
