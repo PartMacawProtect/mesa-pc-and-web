@@ -25,6 +25,32 @@ import {
   Download
 } from "lucide-react";
 
+const playNotificationChime = () => {
+  try {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    
+    osc.type = "sine";
+    // Soft, peaceful dual tone
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+    
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.4);
+  } catch (err) {
+    console.warn("Failed to play notification chime via Web Audio API:", err);
+  }
+};
+
+const isElectron = typeof window !== "undefined" && !!(window as any).electronAPI;
+
 interface ToggleProps {
   active: boolean;
   onChange: (val: boolean) => void;
@@ -156,9 +182,18 @@ export default function ChatView({
   const [profileNameInput, setProfileNameInput] = useState(userName || "Алекс");
 
   // New settings states based on mockup
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [privacyEnabled, setPrivacyEnabled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    const saved = localStorage.getItem("mesa_settings_notifications");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [privacyEnabled, setPrivacyEnabled] = useState(() => {
+    const saved = localStorage.getItem("mesa_settings_privacy");
+    return saved !== null ? saved === "true" : true;
+  });
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
+
+  const isFirstSyncRef = useRef(true);
+  const messagesMapRef = useRef<Record<string, Message[]>>({});
   const [statusMessage, setStatusMessage] = useState(
     language === "EN" ? "Focused" : "В фокусе"
   );
@@ -544,6 +579,45 @@ export default function ChatView({
 
           if (messagesData.success && isMounted) {
             const serverMsgs = messagesData.messages;
+
+            // Background notification triggers for new incoming messages!
+            const isFirstSync = isFirstSyncRef.current;
+            if (isFirstSync) {
+              isFirstSyncRef.current = false;
+            }
+
+            if (!isFirstSync && notificationsEnabled) {
+              let hasNewIncoming = false;
+              let latestNewMsg: any = null;
+              
+              serverMsgs.forEach((sm: any) => {
+                const isIncoming = sm.sender.toLowerCase() !== userEmail.toLowerCase();
+                if (isIncoming) {
+                  const isAlreadyListed = (Object.values(messagesMapRef.current || {}) as Message[][]).some(list => 
+                    list.some(m => String(m.id) === String(sm.id))
+                  );
+                  if (!isAlreadyListed) {
+                    hasNewIncoming = true;
+                    latestNewMsg = sm;
+                  }
+                }
+              });
+
+              if (hasNewIncoming && latestNewMsg) {
+                playNotificationChime();
+                if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+                  try {
+                    const senderName = latestNewMsg.sender.split("@")[0];
+                    new Notification(senderName, {
+                      body: latestNewMsg.text || "📷 Изображение"
+                    });
+                  } catch (e) {
+                    console.error("Failed to show browser notification:", e);
+                  }
+                }
+              }
+            }
+
             const decryptedMsgs = await Promise.all(
               serverMsgs.map(async (m: any) => {
                 if (m.isEncrypted && currentKeyPair) {
@@ -551,7 +625,15 @@ export default function ChatView({
                     const isMe = m.sender.toLowerCase() === userEmail.toLowerCase();
                     const encKey = isMe ? m.encryptedKeyForSender : m.encryptedKeyForRecipient;
                     if (encKey && m.iv) {
-                      const decryptedText = await decryptMessage(m.text, m.iv, encKey, currentKeyPair.privateKey);
+                      const fallbackPassphrase = [m.sender.toLowerCase().trim(), m.recipient.toLowerCase().trim()].sort().join(":");
+                      const decryptedText = await decryptMessage(
+                        m.text, 
+                        m.iv, 
+                        encKey, 
+                        currentKeyPair.privateKey, 
+                        fallbackPassphrase, 
+                        m.encryptedKeyForFallback
+                      );
                       return { ...m, text: decryptedText };
                     }
                   } catch (e) {
@@ -640,6 +722,11 @@ export default function ChatView({
     };
   }, [userEmail, language, activeContactId, isProfileLoaded]);
 
+  // Keep messagesMapRef in sync
+  useEffect(() => {
+    messagesMapRef.current = messagesMap;
+  }, [messagesMap]);
+
   // Read message count observer to clear unread badge instantly
   useEffect(() => {
     if (activeContactId) {
@@ -652,8 +739,19 @@ export default function ChatView({
         }
         return prev;
       });
+
+      // API call to mark messages as read adhering to our privacy toggle
+      fetch(getApiUrl("/api/messages/read"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail: userEmail,
+          contactEmail: activeContactId,
+          privacyEnabled: privacyEnabled
+        })
+      }).catch(err => console.error("Error marking messages as read:", err));
     }
-  }, [activeContactId, messagesMap]);
+  }, [activeContactId, messagesMap, userEmail, privacyEnabled]);
 
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -886,7 +984,8 @@ export default function ChatView({
       if (hasRecipientPublicKey && userKeyPair && currentContactObj?.publicKey) {
         try {
           const recipientPubKeyJwk = JSON.parse(currentContactObj.publicKey);
-          const encrypted = await encryptMessage(messageText, recipientPubKeyJwk, userKeyPair.publicKey);
+          const fallbackPassphrase = [userEmail.toLowerCase().trim(), activeContactId.toLowerCase().trim()].sort().join(":");
+          const encrypted = await encryptMessage(messageText, recipientPubKeyJwk, userKeyPair.publicKey, fallbackPassphrase);
           requestPayload = {
             id: clientMsgId,
             sender: userEmail,
@@ -895,6 +994,7 @@ export default function ChatView({
             isEncrypted: true,
             encryptedKeyForRecipient: encrypted.encryptedKeyForRecipient,
             encryptedKeyForSender: encrypted.encryptedKeyForSender,
+            encryptedKeyForFallback: encrypted.encryptedKeyForFallback,
             iv: encrypted.iv,
             imageUrl: sentImage || undefined
           };
@@ -986,7 +1086,7 @@ export default function ChatView({
   );
 
   return (
-    <div className="flex h-screen w-screen bg-background text-on-background overflow-hidden font-sans">
+    <div className={`flex ${isElectron ? "h-[calc(100vh-40px)]" : "h-screen"} w-screen bg-background text-on-background overflow-hidden font-sans`}>
       
       {/* 1. TOAST NOTIFIER FOR INTERNAL DIALOG ACTIONS */}
       {chatToast && (
@@ -1341,6 +1441,20 @@ export default function ChatView({
                             <span className="text-[10px] text-on-surface-variant/70 font-sans tracking-wide px-1.5 font-semibold">
                               {formatTimeByLang(msg.time, language)}
                             </span>
+                            {isUser && (
+                              <span className="shrink-0 flex items-center">
+                                {msg.isRead && !msg.hideReadReceipt ? (
+                                  <span className="text-blue-500 dark:text-blue-400 flex" title={language === "EN" ? "Read" : "Прочитано"}>
+                                    <Check className="w-3 h-3" />
+                                    <Check className="w-3 h-3 -ml-1.5" />
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 dark:text-slate-500" title={language === "EN" ? "Sent" : "Отправлено"}>
+                                    <Check className="w-3 h-3" />
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             {msg.isPinned && (
                               <span className="text-indigo-600 dark:text-indigo-400 flex items-center shrink-0" title={language === "EN" ? "Pinned" : "Закреплено"}>
                                 <Pin className="w-3 h-3 fill-indigo-600 dark:fill-indigo-400 rotate-45" />
@@ -1786,7 +1900,15 @@ export default function ChatView({
                         : "Получать звуковые оповещения и пуш-уведомления"}
                     </span>
                   </div>
-                  <Toggle active={notificationsEnabled} onChange={setNotificationsEnabled} />
+                  <Toggle active={notificationsEnabled} onChange={(val) => {
+                    setNotificationsEnabled(val);
+                    localStorage.setItem("mesa_settings_notifications", String(val));
+                    if (val && typeof window !== "undefined" && "Notification" in window) {
+                      if (Notification.permission === "default") {
+                        Notification.requestPermission();
+                      }
+                    }
+                  }} />
                 </div>
 
                 <div className="flex items-center justify-between py-4 border-b border-slate-100 dark:border-slate-855/60">
@@ -1800,7 +1922,10 @@ export default function ChatView({
                         : "Показывать статус прочтения собеседнику"}
                     </span>
                   </div>
-                  <Toggle active={privacyEnabled} onChange={setPrivacyEnabled} />
+                  <Toggle active={privacyEnabled} onChange={(val) => {
+                    setPrivacyEnabled(val);
+                    localStorage.setItem("mesa_settings_privacy", String(val));
+                  }} />
                 </div>
 
                 <div className="flex items-center justify-between py-4 border-b border-slate-100 dark:border-slate-855/60">

@@ -17,6 +17,9 @@ export interface Message {
   isPinned?: boolean;
   isEncrypted?: boolean;
   imageUrl?: string;
+  isRead?: boolean;
+  hideReadReceipt?: boolean;
+  encryptedKeyForFallback?: string;
 }
 
 export interface Contact {

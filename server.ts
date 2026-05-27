@@ -82,8 +82,11 @@ interface ServerMessage {
   isEncrypted?: boolean;
   encryptedKeyForRecipient?: string;
   encryptedKeyForSender?: string;
+  encryptedKeyForFallback?: string;
   iv?: string;
   imageUrl?: string;
+  isRead?: boolean;
+  hideReadReceipt?: boolean;
 }
 const globalMessages: ServerMessage[] = [];
 
@@ -854,6 +857,33 @@ app.get("/api/messages/sync", (req, res) => {
   });
 });
 
+// Update read receipts for a specific chat thread
+app.post("/api/messages/read", (req, res) => {
+  const { userEmail, contactEmail, privacyEnabled } = req.body;
+  if (!userEmail || !contactEmail) {
+    return res.status(400).json({ success: false, error: "Недостаточно данных." });
+  }
+  const normalizedUser = userEmail.toLowerCase().trim();
+  const normalizedContact = contactEmail.toLowerCase().trim();
+
+  let databaseChanged = false;
+  globalMessages.forEach(msg => {
+    // If contact is the sender, and the current user is the recipient (reading the thread)
+    if (msg.sender.toLowerCase() === normalizedContact && msg.recipient.toLowerCase() === normalizedUser) {
+      if (!msg.isRead) {
+        msg.isRead = true;
+        msg.hideReadReceipt = !privacyEnabled; // if privacyEnabled is false, hide read tick from the sender
+        databaseChanged = true;
+      }
+    }
+  });
+
+  if (databaseChanged) {
+    saveDatabase();
+  }
+  return res.json({ success: true });
+});
+
 // Rename contact/chat
 app.post("/api/users/contacts/rename", (req, res) => {
   const { userEmail, contactEmail, newName } = req.body;
@@ -956,7 +986,7 @@ app.post("/api/messages/delete", (req, res) => {
 
 // Send message
 app.post("/api/messages/send", async (req, res) => {
-  const { sender, recipient, text, isEncrypted, encryptedKeyForRecipient, encryptedKeyForSender, iv, imageUrl } = req.body;
+  const { sender, recipient, text, isEncrypted, encryptedKeyForRecipient, encryptedKeyForSender, encryptedKeyForFallback, iv, imageUrl } = req.body;
   if (!sender || !recipient || (!text && !imageUrl)) {
     return res.status(400).json({ success: false, error: "Недостаточно данных." });
   }
@@ -975,8 +1005,11 @@ app.post("/api/messages/send", async (req, res) => {
     isEncrypted: !!isEncrypted,
     encryptedKeyForRecipient: encryptedKeyForRecipient,
     encryptedKeyForSender: encryptedKeyForSender,
+    encryptedKeyForFallback: encryptedKeyForFallback,
     iv: iv,
-    imageUrl: imageUrl
+    imageUrl: imageUrl,
+    isRead: false,
+    hideReadReceipt: false
   };
 
   globalMessages.push(userMsg);

@@ -65,12 +65,27 @@ export interface EncryptedPayload {
   iv: string;
   encryptedKeyForRecipient: string;
   encryptedKeyForSender: string;
+  encryptedKeyForFallback?: string;
+}
+
+async function deriveFallbackKey(passphrase: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const rawKey = encoder.encode(passphrase + "-mesa-fallback-salt-2026");
+  const hash = await window.crypto.subtle.digest("SHA-256", rawKey);
+  return await window.crypto.subtle.importKey(
+    "raw",
+    hash,
+    { name: "AES-GCM" },
+    true,
+    ["encrypt", "decrypt"]
+  );
 }
 
 export async function encryptMessage(
   text: string,
   recipientPublicKeyJwk: JsonWebKey,
-  senderPublicKeyJwk: JsonWebKey
+  senderPublicKeyJwk: JsonWebKey,
+  fallbackPassphrase?: string
 ): Promise<EncryptedPayload> {
   // Generate AES-GCM 256 key
   const aesKey = await window.crypto.subtle.generateKey(
@@ -114,11 +129,31 @@ export async function encryptMessage(
     rawAesKey
   );
 
+  let encryptedKeyForFallback = "";
+  if (fallbackPassphrase) {
+    try {
+      const fallbackKey = await deriveFallbackKey(fallbackPassphrase);
+      const fallbackIv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encKeyForFallbackBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: fallbackIv },
+        fallbackKey,
+        rawAesKey
+      );
+      const finalBuffer = new Uint8Array(12 + encKeyForFallbackBuffer.byteLength);
+      finalBuffer.set(fallbackIv, 0);
+      finalBuffer.set(new Uint8Array(encKeyForFallbackBuffer), 12);
+      encryptedKeyForFallback = arrayBufferToBase64(finalBuffer.buffer);
+    } catch (e) {
+      console.error("Failed to encrypt E2E key for fallback:", e);
+    }
+  }
+
   return {
     ciphertext: arrayBufferToBase64(encryptedTextBuffer),
     iv: arrayBufferToBase64(iv),
     encryptedKeyForRecipient: arrayBufferToBase64(encKeyForRecipientBuffer),
-    encryptedKeyForSender: arrayBufferToBase64(encKeyForSenderBuffer)
+    encryptedKeyForSender: arrayBufferToBase64(encKeyForSenderBuffer),
+    encryptedKeyForFallback
   };
 }
 
@@ -126,16 +161,40 @@ export async function decryptMessage(
   ciphertextBase64: string,
   ivBase64: string,
   encryptedKeyBase64: string,
-  privateKeyJwk: JsonWebKey
+  privateKeyJwk: JsonWebKey,
+  fallbackPassphrase?: string,
+  encryptedKeyForFallbackBase64?: string
 ): Promise<string> {
-  const rsaPrivate = await importPrivateKey(privateKeyJwk);
-
-  const encryptedKeyBuffer = base64ToArrayBuffer(encryptedKeyBase64);
-  const decRawKeyBuffer = await window.crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    rsaPrivate,
-    encryptedKeyBuffer
-  );
+  let decRawKeyBuffer: ArrayBuffer;
+  try {
+    const rsaPrivate = await importPrivateKey(privateKeyJwk);
+    const encryptedKeyBuffer = base64ToArrayBuffer(encryptedKeyBase64);
+    decRawKeyBuffer = await window.crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      rsaPrivate,
+      encryptedKeyBuffer
+    );
+  } catch (rsaErr) {
+    console.warn("RSA OAEP decryption failed. Trying fallback key...", rsaErr);
+    if (fallbackPassphrase && encryptedKeyForFallbackBase64) {
+      try {
+        const fallbackKey = await deriveFallbackKey(fallbackPassphrase);
+        const combinedBuffer = base64ToArrayBuffer(encryptedKeyForFallbackBase64);
+        const iv = new Uint8Array(combinedBuffer, 0, 12);
+        const ciphertext = new Uint8Array(combinedBuffer, 12);
+        decRawKeyBuffer = await window.crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv },
+          fallbackKey,
+          ciphertext
+        );
+      } catch (fallbackErr) {
+        console.error("Fallback decryption failed too:", fallbackErr);
+        throw rsaErr;
+      }
+    } else {
+      throw rsaErr;
+    }
+  }
 
   const aesKey = await window.crypto.subtle.importKey(
     "raw",
