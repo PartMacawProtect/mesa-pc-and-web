@@ -870,9 +870,11 @@ app.post("/api/messages/read", (req, res) => {
   globalMessages.forEach(msg => {
     // If contact is the sender, and the current user is the recipient (reading the thread)
     if (msg.sender.toLowerCase() === normalizedContact && msg.recipient.toLowerCase() === normalizedUser) {
-      if (!msg.isRead) {
-        msg.isRead = true;
-        msg.hideReadReceipt = !privacyEnabled; // if privacyEnabled is false, hide read tick from the sender
+      const targetIsRead = true;
+      const targetHideReadReceipt = !privacyEnabled; // if privacyEnabled is false, hide read tick from the sender
+      if (msg.isRead !== targetIsRead || msg.hideReadReceipt !== targetHideReadReceipt) {
+        msg.isRead = targetIsRead;
+        msg.hideReadReceipt = targetHideReadReceipt;
         databaseChanged = true;
       }
     }
@@ -938,6 +940,11 @@ app.post("/api/chats/delete", (req, res) => {
   // Also remove contact relationships from local userContactsMap of user so it disappears from left list
   if (userContactsMap.has(uEmail)) {
     userContactsMap.get(uEmail)!.delete(cEmail);
+  }
+  if (deleteForEveryone) {
+    if (userContactsMap.has(cEmail)) {
+      userContactsMap.get(cEmail)!.delete(uEmail);
+    }
   }
   saveDatabase();
 

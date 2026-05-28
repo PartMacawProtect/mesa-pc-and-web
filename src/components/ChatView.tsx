@@ -22,7 +22,8 @@ import {
   Lock,
   ArrowLeft,
   Monitor,
-  Download
+  Download,
+  ArrowDown
 } from "lucide-react";
 
 const playNotificationChime = () => {
@@ -347,6 +348,9 @@ export default function ChatView({
 
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
 
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [showScrollDownBtn, setShowScrollDownBtn] = useState(false);
+
   // Synchronize dynamic message seen counts for unread badge metrics
   const [lastSeenCount, setLastSeenCount] = useState<Record<string, number>>(() => {
     try {
@@ -661,7 +665,9 @@ export default function ChatView({
                 time: m.time,
                 isPinned: m.isPinned,
                 isEncrypted: m.isEncrypted,
-                imageUrl: m.imageUrl
+                imageUrl: m.imageUrl,
+                isRead: m.isRead,
+                hideReadReceipt: m.hideReadReceipt
               });
             });
 
@@ -688,7 +694,7 @@ export default function ChatView({
               
               Object.keys(prev).forEach((contactId) => {
                 const prevMsgs = prev[contactId] || [];
-                const optimisticMsgs = prevMsgs.filter(m => String(m.id).startsWith("msg-client-") || String(m.id).startsWith("optimistic-"));
+                const optimisticMsgs = prevMsgs.filter(m => m.sender === "user" && (String(m.id).startsWith("msg-client-") || String(m.id).startsWith("optimistic-")));
                 
                 if (optimisticMsgs.length > 0) {
                   const currentMsgs = merged[contactId] || [];
@@ -762,21 +768,89 @@ export default function ChatView({
   const [newContactEmail, setNewContactEmail] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = (behavior: "smooth" | "auto" = "smooth") => {
+    if (chatScrollContainerRef.current) {
+      chatScrollContainerRef.current.scrollTo({
+        top: chatScrollContainerRef.current.scrollHeight,
+        behavior: behavior
+      });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }
   };
 
-  useEffect(() => {
-    if (currentTab === "chats") {
-      scrollToBottom();
-    }
-  }, [messagesMap, isTyping, currentTab, activeContactId]);
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (!target) return;
+    const isCloseToBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 150;
+    setShowScrollDownBtn(!isCloseToBottom);
+  };
 
-  // Current active messages thread list
+  const lastMsgIdsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    if (currentTab === "chats" && activeContactId) {
+      scrollToBottom("auto");
+      setShowScrollDownBtn(false);
+      // Seed the last message ID on switch so we don't treat switching as a new message received auto-scroll
+      const lastMsg = activeMessages[activeMessages.length - 1];
+      if (lastMsg) {
+        lastMsgIdsRef.current[activeContactId] = String(lastMsg.id);
+      }
+    }
+  }, [activeContactId, currentTab]);
+
   const activeMessages = activeContactId ? (messagesMap[activeContactId] || []) : [];
+
+  useEffect(() => {
+    if (activeContactId) {
+      const lastMsg = activeMessages[activeMessages.length - 1];
+      const lastMsgId = lastMsg ? String(lastMsg.id) : null;
+      const previousLastMsgId = lastMsgIdsRef.current[activeContactId];
+      
+      if (lastMsgId && lastMsgId !== previousLastMsgId) {
+        const sentByMe = lastMsg.sender === "user";
+        const container = chatScrollContainerRef.current;
+        const isNearBottom = container
+          ? (container.scrollHeight - container.scrollTop - container.clientHeight < 250)
+          : true;
+          
+        if (sentByMe || isNearBottom) {
+          setTimeout(() => scrollToBottom("smooth"), 50);
+          setShowScrollDownBtn(false);
+        } else {
+          // If the user has scrolled up, show the arrow down button when a new message arrives
+          setShowScrollDownBtn(true);
+        }
+        lastMsgIdsRef.current[activeContactId] = lastMsgId;
+      }
+    }
+  }, [activeMessages.length, activeContactId]);
   const pinnedMessages = activeMessages.filter(m => m.isPinned);
+
+  // Auto-close active chat pane if the other user deletes the chat for everyone (removing contact relationship)
+  useEffect(() => {
+    if (activeContactId) {
+      const isAi = activeContactId === "elena@mesa.com" || activeContactId.endsWith("@ai");
+      if (!isAi && contacts.length > 0) {
+        const stillExists = contacts.some(c => c.id.toLowerCase() === activeContactId.toLowerCase());
+        if (!stillExists) {
+          setActiveContactId(null);
+          if (selectedContactDetailedId === activeContactId) {
+            setSelectedContactDetailedId(null);
+          }
+          showChatToast(
+            language === "EN" 
+              ? "This chat has been deleted by the other participant." 
+              : "Этот чат был удален собеседником."
+          );
+        }
+      }
+    }
+  }, [contacts, activeContactId, selectedContactDetailedId, language]);
 
   // Context actions execution methods
   const handlePinMessage = async (msg: Message) => {
@@ -1090,7 +1164,7 @@ export default function ChatView({
       
       {/* 1. TOAST NOTIFIER FOR INTERNAL DIALOG ACTIONS */}
       {chatToast && (
-        <div className="fixed top-6 right-6 md:right-8 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs px-5 py-3.5 rounded-2xl shadow-2xl z-[9999] border border-slate-700/20 dark:border-white/20">
+        <div className={`fixed ${isElectron ? "top-14" : "top-6"} right-6 md:right-8 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs px-5 py-3.5 rounded-2xl shadow-2xl z-[9999] border border-slate-700/20 dark:border-white/20`}>
           {chatToast}
         </div>
       )}
@@ -1356,7 +1430,20 @@ export default function ChatView({
 
                 {/* Pinned Messages Banner */}
                 {pinnedMessages.length > 0 && (
-                  <div className="bg-slate-50 dark:bg-slate-900 border-b border-outline-variant/10 px-6 py-2 flex items-center justify-between shrink-0 z-10 text-xs text-slate-600 dark:text-slate-300 shadow-sm animate-scale-in">
+                  <div 
+                    onClick={() => {
+                      const latestPinned = pinnedMessages[pinnedMessages.length - 1];
+                      const element = document.getElementById(`msg-bubble-${latestPinned.id}`);
+                      if (element) {
+                        element.scrollIntoView({ behavior: "smooth", block: "center" });
+                        setHighlightedMessageId(latestPinned.id);
+                        setTimeout(() => {
+                          setHighlightedMessageId(null);
+                        }, 1000);
+                      }
+                    }}
+                    className="bg-slate-50 dark:bg-slate-900 border-b border-outline-variant/10 px-6 py-2 flex items-center justify-between shrink-0 z-10 text-xs text-slate-600 dark:text-slate-300 shadow-sm animate-scale-in cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-all select-none"
+                  >
                     <div className="flex items-center gap-2 truncate">
                       <Pin className="w-3.5 h-3.5 text-indigo-500 shrink-0 fill-indigo-500 rotate-45" />
                       <span className="font-bold uppercase tracking-wider text-[9px] text-[#15196c] dark:text-indigo-400 shrink-0">
@@ -1367,8 +1454,11 @@ export default function ChatView({
                       </span>
                     </div>
                     <button
-                      onClick={() => handlePinMessage(pinnedMessages[pinnedMessages.length - 1])}
-                      className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-slate-600 border-none bg-transparent cursor-pointer flex items-center justify-center transition-all"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePinMessage(pinnedMessages[pinnedMessages.length - 1]);
+                      }}
+                      className="p-1 hover:bg-slate-205 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-slate-600 border-none bg-transparent cursor-pointer flex items-center justify-center transition-all z-20"
                       title={language === "EN" ? "Unpin Message" : "Открепить"}
                     >
                       <X className="w-3.5 h-3.5" />
@@ -1377,7 +1467,11 @@ export default function ChatView({
                 )}
 
                 {/* Messaging scroll pane */}
-                <div className="flex-grow overflow-y-auto px-6 py-6 flex flex-col gap-5 bg-background">
+                <div 
+                  ref={chatScrollContainerRef}
+                  onScroll={handleScroll}
+                  className="flex-grow overflow-y-auto px-6 py-6 flex flex-col gap-5 bg-background relative"
+                >
                   <div className="text-center my-2 select-none">
                     <span className="text-[11px] font-sans font-bold bg-surface-container-high text-on-surface-variant px-3 py-1 rounded-full uppercase tracking-wider">
                       {t.today}
@@ -1386,9 +1480,11 @@ export default function ChatView({
 
                   {activeMessages.map((msg) => {
                     const isUser = msg.sender === "user";
+                    const isHighlighted = highlightedMessageId === msg.id;
                     return (
                       <div
                         key={msg.id}
+                        id={`msg-bubble-${msg.id}`}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -1405,7 +1501,7 @@ export default function ChatView({
 
                         <div className="flex flex-col max-w-[70%] sm:max-w-[60%] gap-1">
                           <div
-                            className={`relative overflow-hidden ${
+                            className={`relative overflow-hidden transition-all duration-300 ${isHighlighted ? "ring-4 ring-indigo-500/50 scale-[1.03]" : ""} ${
                               isUser
                                 ? "bg-primary text-on-primary rounded-[20px] rounded-br-[4px] shadow-sm selection:bg-white selection:text-primary"
                                 : "bg-surface-container-lowest text-on-surface rounded-[20px] rounded-bl-[4px] shadow-[0_2px_8px_rgba(45,50,130,0.02)] selection:bg-primary-fixed selection:text-on-primary-fixed border border-outline-variant/20"
@@ -1605,6 +1701,18 @@ export default function ChatView({
                     </button>
                   </form>
                 </footer>
+
+                {/* Scroll Down Floating arrow button */}
+                {showScrollDownBtn && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToBottom("smooth")}
+                    className="absolute bottom-24 right-8 p-3 bg-white dark:bg-slate-850 text-slate-750 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-full shadow-lg border border-slate-200/80 dark:border-slate-800/80 cursor-pointer flex items-center justify-center transition-all z-20 hover:scale-105 active:scale-95 duration-150 animate-bounce"
+                    title={language === "EN" ? "Scroll to bottom" : "Прокрутить вниз"}
+                  >
+                    <ArrowDown className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+                  </button>
+                )}
               </>
             )}
           </section>
@@ -1892,12 +2000,7 @@ export default function ChatView({
                 <div className="flex items-center justify-between py-4 border-b border-slate-100 dark:border-slate-850/60">
                   <div className="flex flex-col max-w-[70%]">
                     <span className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-0.5">
-                      {language === "EN" ? "Notifications" : "Оповещения"}
-                    </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-semibold">
-                      {language === "EN" 
-                        ? "Receive alerts for new messages" 
-                        : "Получать звуковые оповещения и пуш-уведомления"}
+                      {language === "EN" ? "Receive sound notifications" : "Получать звуковые уведомления"}
                     </span>
                   </div>
                   <Toggle active={notificationsEnabled} onChange={(val) => {

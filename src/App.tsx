@@ -79,10 +79,22 @@ function ElectronTitlebar() {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>(Screen.LOGIN);
+  const [userEmail, setUserEmail] = useState(() => {
+    return localStorage.getItem("mesa_user_email") || "";
+  });
+  const [userName, setUserName] = useState(() => {
+    return localStorage.getItem("mesa_user_name") || "";
+  });
+  const [screen, setScreen] = useState<Screen>(() => {
+    const savedScreen = localStorage.getItem("mesa_screen");
+    if (savedScreen && Object.values(Screen).includes(savedScreen as Screen)) {
+      if (localStorage.getItem("mesa_user_email") && localStorage.getItem("mesa_user_name")) {
+        return Screen.CHAT;
+      }
+    }
+    return Screen.LOGIN;
+  });
   const [language, setLanguage] = useState<Language>("RU"); // Defaulting to Russian (RU) as specified
-  const [userEmail, setUserEmail] = useState("");
-  const [userName, setUserName] = useState("");
   const [otpEmail, setOtpEmail] = useState("");
   const [isPasswordReset, setIsPasswordReset] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -143,6 +155,9 @@ export default function App() {
         ? "Email successfully verified! Welcome to Mesa." 
         : "Email успешно подтвержден! Добро пожаловать в Mesa."
     );
+    localStorage.setItem("mesa_user_email", userEmail);
+    localStorage.setItem("mesa_user_name", userName);
+    localStorage.setItem("mesa_screen", Screen.CHAT);
     setScreen(Screen.CHAT);
   };
 
@@ -150,12 +165,18 @@ export default function App() {
   const handleLoginSuccess = (email: string, name: string) => {
     setUserEmail(email);
     setUserName(name);
+    localStorage.setItem("mesa_user_email", email);
+    localStorage.setItem("mesa_user_name", name);
+    localStorage.setItem("mesa_screen", Screen.CHAT);
     setScreen(Screen.CHAT);
   };
 
   const handleLogout = () => {
     setUserEmail("");
     setUserName("");
+    localStorage.removeItem("mesa_user_email");
+    localStorage.removeItem("mesa_user_name");
+    localStorage.removeItem("mesa_screen");
     setScreen(Screen.LOGIN);
   };
 
@@ -165,7 +186,7 @@ export default function App() {
       
       {/* Toast Notification HUD */}
       {toastMessage && (
-        <div className="fixed top-8 left-1/2 -translate-x-1/2 bg-primary text-on-primary font-semibold text-sm px-6 py-4 rounded-full shadow-2xl z-50 border border-primary-fixed-dim/20">
+        <div className={`fixed ${isElectron ? "top-14" : "top-8"} left-1/2 -translate-x-1/2 bg-primary text-on-primary font-semibold text-sm px-6 py-4 rounded-full shadow-2xl z-50 border border-primary-fixed-dim/20`}>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>
             <span>{toastMessage}</span>
