@@ -920,13 +920,16 @@ app.post("/api/chats/delete", (req, res) => {
   }
   const uEmail = userEmail.toLowerCase().trim();
   const cEmail = contactEmail.toLowerCase().trim();
+  const isDeleteForEveryone = deleteForEveryone === true || deleteForEveryone === "true";
 
-  if (deleteForEveryone) {
+  if (isDeleteForEveryone) {
     // Delete messages from globally stored list entirely
     for (let i = globalMessages.length - 1; i >= 0; i--) {
       const m = globalMessages[i];
-      const match = (m.sender.toLowerCase() === uEmail && m.recipient.toLowerCase() === cEmail) ||
-                    (m.sender.toLowerCase() === cEmail && m.recipient.toLowerCase() === uEmail);
+      const mSender = (m.sender || "").toLowerCase().trim();
+      const mRecipient = (m.recipient || "").toLowerCase().trim();
+      const match = (mSender === uEmail && mRecipient === cEmail) ||
+                    (mSender === cEmail && mRecipient === uEmail);
       if (match) {
         globalMessages.splice(i, 1);
       }
@@ -934,8 +937,10 @@ app.post("/api/chats/delete", (req, res) => {
   } else {
     // Soft delete messages only for this user
     globalMessages.forEach(m => {
-      const match = (m.sender.toLowerCase() === uEmail && m.recipient.toLowerCase() === cEmail) ||
-                    (m.sender.toLowerCase() === cEmail && m.recipient.toLowerCase() === uEmail);
+      const mSender = (m.sender || "").toLowerCase().trim();
+      const mRecipient = (m.recipient || "").toLowerCase().trim();
+      const match = (mSender === uEmail && mRecipient === cEmail) ||
+                    (mSender === cEmail && mRecipient === uEmail);
       if (match) {
         if (!m.deletedBy) m.deletedBy = [];
         if (!m.deletedBy.includes(uEmail)) {
@@ -949,7 +954,7 @@ app.post("/api/chats/delete", (req, res) => {
   if (userContactsMap.has(uEmail)) {
     userContactsMap.get(uEmail)!.delete(cEmail);
   }
-  if (deleteForEveryone) {
+  if (isDeleteForEveryone) {
     if (userContactsMap.has(cEmail)) {
       userContactsMap.get(cEmail)!.delete(uEmail);
     }

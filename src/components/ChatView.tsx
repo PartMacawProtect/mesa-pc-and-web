@@ -1530,7 +1530,7 @@ export default function ChatView({
                               isUser
                                 ? "bg-primary text-on-primary rounded-[20px] rounded-br-[4px] shadow-sm selection:bg-white selection:text-primary"
                                 : "bg-surface-container-lowest text-on-surface rounded-[20px] rounded-bl-[4px] shadow-[0_2px_8px_rgba(45,50,130,0.02)] selection:bg-primary-fixed selection:text-on-primary-fixed border border-outline-variant/20"
-                            } ${msg.imageUrl ? "p-1.5" : "px-5 py-3.5"}`}
+                            } ${msg.imageUrl ? "p-1.5" : msg.attachment ? "p-3" : "px-5 py-3.5"}`}
                           >
                             {msg.imageUrl && (
                               <div className="rounded-[16px] overflow-hidden max-w-full cursor-zoom-in group/img relative">
@@ -1546,8 +1546,48 @@ export default function ChatView({
                                 />
                               </div>
                             )}
+                            {msg.attachment && (
+                              <div className={`flex items-center justify-between gap-4 p-3 rounded-xl border max-w-full ${
+                                isUser 
+                                  ? "bg-white/10 dark:bg-white/5 border-white/20 text-white" 
+                                  : "bg-slate-50 dark:bg-slate-800/80 border-slate-200/50 dark:border-slate-750 text-slate-850 dark:text-slate-100"
+                              }`}>
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className={`p-2 rounded-lg shrink-0 flex items-center justify-center ${
+                                    isUser 
+                                      ? "bg-white/15 text-white" 
+                                      : "bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-500"
+                                  }`}>
+                                    <FileText className="w-5 h-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold truncate leading-tight max-w-[150px] sm:max-w-[200px]" title={msg.attachment.name}>
+                                      {msg.attachment.name}
+                                    </div>
+                                    <span className={`text-[10px] font-medium leading-normal block mt-0.5 ${
+                                      isUser ? "text-white/70" : "text-slate-500 dark:text-slate-400"
+                                    }`}>
+                                      {(msg.attachment.size / (1024 * 1024)).toFixed(2)} MB
+                                    </span>
+                                  </div>
+                                </div>
+                                <a
+                                  href={msg.attachment.dataUrl}
+                                  download={msg.attachment.name}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={`p-2 rounded-lg transition-all shrink-0 cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 border-none ${
+                                    isUser 
+                                      ? "bg-white text-primary hover:bg-slate-100" 
+                                      : "bg-primary text-white hover:opacity-90"
+                                  }`}
+                                  title={language === "EN" ? "Download File" : "Скачать файл"}
+                                >
+                                  <Download className={`w-4 h-4 ${isUser ? "text-primary" : "text-white"}`} />
+                                </a>
+                              </div>
+                            )}
                             {msg.text && (
-                              <p className={`whitespace-pre-wrap break-words ${msg.imageUrl ? "px-3 pt-2 pb-1 text-sm col-span-12" : "text-sm md:text-base leading-relaxed"}`}>
+                              <p className={`whitespace-pre-wrap break-words ${msg.imageUrl ? "px-3 pt-2 pb-1 text-sm col-span-12" : msg.attachment ? "px-1 pt-2 pb-0.5 text-sm" : "text-sm md:text-base leading-relaxed"}`}>
                                 {msg.text}
                               </p>
                             )}
