@@ -70,6 +70,13 @@ users.set("elena@mesa.com", {
 });
 
 // --- REAL-TIME USER-TO-USER MESSAGING DATABASE ---
+interface FileAttachment {
+  name: string;
+  size: number;
+  type: string;
+  dataUrl: string;
+}
+
 interface ServerMessage {
   id: string;
   sender: string; // sender email
@@ -85,6 +92,7 @@ interface ServerMessage {
   encryptedKeyForFallback?: string;
   iv?: string;
   imageUrl?: string;
+  attachment?: FileAttachment;
   isRead?: boolean;
   hideReadReceipt?: boolean;
 }
@@ -993,8 +1001,8 @@ app.post("/api/messages/delete", (req, res) => {
 
 // Send message
 app.post("/api/messages/send", async (req, res) => {
-  const { sender, recipient, text, isEncrypted, encryptedKeyForRecipient, encryptedKeyForSender, encryptedKeyForFallback, iv, imageUrl } = req.body;
-  if (!sender || !recipient || (!text && !imageUrl)) {
+  const { sender, recipient, text, isEncrypted, encryptedKeyForRecipient, encryptedKeyForSender, encryptedKeyForFallback, iv, imageUrl, attachment } = req.body;
+  if (!sender || !recipient || (!text && !imageUrl && !attachment)) {
     return res.status(400).json({ success: false, error: "Недостаточно данных." });
   }
 
@@ -1015,6 +1023,7 @@ app.post("/api/messages/send", async (req, res) => {
     encryptedKeyForFallback: encryptedKeyForFallback,
     iv: iv,
     imageUrl: imageUrl,
+    attachment: attachment,
     isRead: false,
     hideReadReceipt: false
   };

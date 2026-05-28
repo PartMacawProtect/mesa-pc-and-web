@@ -8,6 +8,13 @@ export enum Screen {
   CHAT = "chat"
 }
 
+export interface FileAttachment {
+  name: string;
+  size: number;
+  type: string;
+  dataUrl: string; // Base64 representation of file
+}
+
 export interface Message {
   id: string;
   sender: "user" | "elena" | string;
@@ -17,6 +24,7 @@ export interface Message {
   isPinned?: boolean;
   isEncrypted?: boolean;
   imageUrl?: string;
+  attachment?: FileAttachment;
   isRead?: boolean;
   hideReadReceipt?: boolean;
   encryptedKeyForFallback?: string;

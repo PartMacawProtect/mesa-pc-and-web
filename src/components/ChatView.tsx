@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Language, Message, Contact } from "../types";
+import { Language, Message, Contact, FileAttachment } from "../types";
 import { translations } from "../locales";
 import { generateKeyPair, encryptMessage, decryptMessage } from "../utils/crypto";
 import { getApiUrl } from "../utils/api";
@@ -23,7 +23,8 @@ import {
   ArrowLeft,
   Monitor,
   Download,
-  ArrowDown
+  ArrowDown,
+  FileText
 } from "lucide-react";
 
 const playNotificationChime = () => {
@@ -326,8 +327,10 @@ export default function ChatView({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const localSentMsgIdsRef = useRef<Set<string>>(new Set());
 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedAttachment, setSelectedAttachment] = useState<FileAttachment | null>(null);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
 
@@ -438,7 +441,7 @@ export default function ChatView({
     }
   };
 
-  const handleImageAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 100 * 1024 * 1024) {
@@ -448,7 +451,18 @@ export default function ChatView({
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === "string") {
-          setSelectedImage(reader.result);
+          if (file.type.startsWith("image/")) {
+            setSelectedImage(reader.result);
+            setSelectedAttachment(null);
+          } else {
+            setSelectedImage(null);
+            setSelectedAttachment({
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              dataUrl: reader.result
+            });
+          }
           setIsEmojiPickerOpen(false);
         }
       };
@@ -511,6 +525,11 @@ export default function ChatView({
           console.error("Pulse heartbeat error:", err);
           return null;
         });
+
+        if (pulseRes && pulseRes.status === 404) {
+          onLogout();
+          return;
+        }
 
         if (pulseRes && pulseRes.ok) {
           const pulseData = await pulseRes.json();
@@ -610,16 +629,6 @@ export default function ChatView({
 
               if (hasNewIncoming && latestNewMsg) {
                 playNotificationChime();
-                if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-                  try {
-                    const senderName = latestNewMsg.sender.split("@")[0];
-                    new Notification(senderName, {
-                      body: latestNewMsg.text || "📷 Изображение"
-                    });
-                  } catch (e) {
-                    console.error("Failed to show browser notification:", e);
-                  }
-                }
               }
             }
 
@@ -667,6 +676,7 @@ export default function ChatView({
                 isPinned: m.isPinned,
                 isEncrypted: m.isEncrypted,
                 imageUrl: m.imageUrl,
+                attachment: m.attachment,
                 isRead: m.isRead,
                 hideReadReceipt: m.hideReadReceipt
               });
@@ -698,6 +708,7 @@ export default function ChatView({
                 const optimisticMsgs = prevMsgs.filter(m => 
                   m.sender === "user" && 
                   !deletedMsgIdsRef.current.has(String(m.id)) &&
+                  localSentMsgIdsRef.current.has(String(m.id)) &&
                   (String(m.id).startsWith("msg-client-") || String(m.id).startsWith("optimistic-"))
                 );
                 
@@ -1015,19 +1026,22 @@ export default function ChatView({
   // Submit new message to respective contact
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputText.trim() && !selectedImage) || !activeContactId || !userEmail) return;
+    if ((!inputText.trim() && !selectedImage && !selectedAttachment) || !activeContactId || !userEmail) return;
 
     const messageText = inputText.trim();
     const sentImage = selectedImage;
+    const sentAttachment = selectedAttachment;
 
     setInputText("");
     setSelectedImage(null);
+    setSelectedAttachment(null);
     setIsEmojiPickerOpen(false);
 
     const currentContactObj = contacts.find(c => c.id === activeContactId);
     const hasRecipientPublicKey = !!(currentContactObj && currentContactObj.publicKey);
 
     const clientMsgId = `msg-client-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    localSentMsgIdsRef.current.add(clientMsgId);
 
     // Optimistically push the message to local state map so UI acts with zero delay!
     const localUserMsg: Message = {
@@ -1036,7 +1050,8 @@ export default function ChatView({
       text: messageText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isEncrypted: hasRecipientPublicKey && !!userKeyPair,
-      imageUrl: sentImage || undefined
+      imageUrl: sentImage || undefined,
+      attachment: sentAttachment || undefined
     };
 
     setMessagesMap(prev => {
@@ -1058,7 +1073,8 @@ export default function ChatView({
         sender: userEmail,
         recipient: activeContactId,
         text: messageText,
-        imageUrl: sentImage || undefined
+        imageUrl: sentImage || undefined,
+        attachment: sentAttachment || undefined
       };
 
       if (hasRecipientPublicKey && userKeyPair && currentContactObj?.publicKey) {
@@ -1076,7 +1092,8 @@ export default function ChatView({
             encryptedKeyForSender: encrypted.encryptedKeyForSender,
             encryptedKeyForFallback: encrypted.encryptedKeyForFallback,
             iv: encrypted.iv,
-            imageUrl: sentImage || undefined
+            imageUrl: sentImage || undefined,
+            attachment: sentAttachment || undefined
           };
         } catch (encErr) {
           console.error("Encryption failed, sending as cleartext fallback:", encErr);
@@ -1578,7 +1595,7 @@ export default function ChatView({
                         <div className="bg-surface-container-lowest text-on-surface px-5 py-3.5 rounded-[20px] rounded-bl-[4px] border border-outline-variant/20 flex items-center gap-1.5 shadow-[0_2px_8px_rgba(45,50,130,0.02)]">
                           <div className="w-2 h-2 bg-on-surface-variant/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
                           <div className="w-2 h-2 bg-on-surface-variant/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                          <div className="w-2 h-2 bg-on-surface-variant/60 rounded-full animate-bounce" style={{ animationDelay: "300ms animate-duration-1000" }}></div>
+                          <div className="w-2 h-2 bg-on-surface-variant/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
                         </div>
                         <span className="text-[10px] text-on-surface-variant/50 font-sans px-1 mt-1 font-semibold">
                           {language === "EN" 
@@ -1593,12 +1610,11 @@ export default function ChatView({
                 </div>
 
                 {/*composer footer */}
-                <footer className="p-4 bg-surface-container-lowest border-t border-outline-variant/20 shrink-0 select-none z-10">
+                <footer className="p-4 bg-surface-container-lowest border-t border-outline-variant/20 shrink-0 select-none z-10 font-sans">
                   <input 
                     ref={imageAttachmentInputRef}
                     type="file"
-                    accept="image/*"
-                    onChange={handleImageAttachmentChange}
+                    onChange={handleAttachmentChange}
                     className="hidden"
                     id="image-file-input"
                   />
@@ -1633,10 +1649,37 @@ export default function ChatView({
                     </div>
                   )}
 
+                  {/* Selected Document Preview Panel */}
+                  {selectedAttachment && (
+                    <div className="max-w-4xl mx-auto mb-3 p-3 bg-slate-50 dark:bg-slate-900 border border-outline-variant/20 rounded-2xl flex items-center justify-between gap-4 animate-scale-in">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <div className="text-left max-w-md overflow-hidden">
+                          <span className="block text-xs font-bold text-on-surface truncate">
+                            {selectedAttachment.name}
+                          </span>
+                          <span className="text-[10px] text-on-surface-variant/70 font-semibold font-mono">
+                            {(selectedAttachment.size / (1024 * 1024)).toFixed(2)} MB • {language === "EN" ? "Ready to send" : "Готово к отправке"}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAttachment(null)}
+                        className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-error-fixed rounded-full transition-all cursor-pointer border-none bg-transparent flex items-center justify-center"
+                        title={language === "EN" ? "Remove File" : "Удалить файл"}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Local Serene Emoji Picker Popover */}
                   {isEmojiPickerOpen && (
                     <div className="max-w-4xl mx-auto mb-3 p-4 bg-slate-50 dark:bg-slate-900 border border-outline-variant/20 rounded-2xl shadow-xl animate-fade-in relative z-10">
-                      <div className="flex justify-between items-center mb-2 pb-2 border-b border-outline-variant/10">
+                      <div className="flex justify-between items-center mb-2 pb-2 border-b border-outline-variant/10 font-sans">
                         <span className="text-xs font-extrabold text-[#15196c] dark:text-indigo-400 uppercase tracking-wider">
                           {language === "EN" ? "Select Emoji" : "Выберите эмодзи"}
                         </span>
@@ -1670,7 +1713,7 @@ export default function ChatView({
                       type="button" 
                       onClick={() => imageAttachmentInputRef.current?.click()}
                       className="p-3 bg-surface-container-low hover:bg-surface-container text-on-surface-variant rounded-full transition-colors flex items-center justify-center cursor-pointer border-none"
-                      title={language === "EN" ? "Attach Image" : "Прикрепить изображение"}
+                      title={language === "EN" ? "Attach File" : "Прикрепить файл"}
                       id="attach-image-btn"
                     >
                       <Plus className="w-5 h-5 text-slate-500" />
@@ -1698,7 +1741,7 @@ export default function ChatView({
 
                     <button
                       type="submit"
-                      disabled={(!inputText.trim() && !selectedImage) || isTyping}
+                      disabled={(!inputText.trim() && !selectedImage && !selectedAttachment) || isTyping}
                       className="p-3.5 bg-primary text-white hover:opacity-95 disabled:opacity-40 rounded-full transition-all flex items-center justify-center shadow-md active:scale-95 duration-100 cursor-pointer shrink-0 border-none"
                       title={t.sendButtonLabel}
                       id="send-message-btn"
@@ -2012,11 +2055,6 @@ export default function ChatView({
                   <Toggle active={notificationsEnabled} onChange={(val) => {
                     setNotificationsEnabled(val);
                     localStorage.setItem("mesa_settings_notifications", String(val));
-                    if (val && typeof window !== "undefined" && "Notification" in window) {
-                      if (Notification.permission === "default") {
-                        Notification.requestPermission();
-                      }
-                    }
                   }} />
                 </div>
 

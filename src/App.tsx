@@ -181,7 +181,7 @@ export default function App() {
   };
 
   return (
-    <div className={`bg-background min-h-screen font-sans overflow-x-hidden antialiased select-none ${isElectron ? "pt-10" : ""}`}>
+    <div className={`bg-background h-screen w-screen overflow-hidden font-sans antialiased select-none relative flex flex-col ${isElectron ? "pt-10" : ""}`}>
       {isElectron && <ElectronTitlebar />}
       
       {/* Toast Notification HUD */}
@@ -202,7 +202,7 @@ export default function App() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 1.02, y: -10 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="min-h-screen w-full"
+          className="h-full w-full overflow-hidden flex-grow"
         >
           {screen === Screen.LOGIN && (
             <LoginView
