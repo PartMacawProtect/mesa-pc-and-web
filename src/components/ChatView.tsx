@@ -51,6 +51,12 @@ const playNotificationChime = () => {
   }
 };
 
+const resolveMediaUrl = (url: string | undefined): string => {
+  if (!url) return "";
+  if (url.startsWith("data:")) return url;
+  return getApiUrl(url);
+};
+
 const isElectron = typeof window !== "undefined" && !!(window as any).electronAPI;
 
 interface ToggleProps {
@@ -1070,13 +1076,64 @@ export default function ChatView({
     }
 
     try {
+      let uploadedImageUrl = sentImage || undefined;
+      let uploadedAttachment = sentAttachment || undefined;
+
+      try {
+        if (sentImage) {
+          const match = sentImage.match(/^data:([^;]+);/);
+          const mimeType = match ? match[1] : "image/png";
+          const ext = mimeType.split("/")[1] || "png";
+          const filename = `image-${Date.now()}.${ext}`;
+
+          const uploadRes = await fetch(getApiUrl("/api/files/upload"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: filename,
+              type: mimeType,
+              dataUrl: sentImage
+            })
+          });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            if (uploadData.success) {
+              uploadedImageUrl = `/api/files/download/${uploadData.fileId}`;
+            }
+          }
+        } else if (sentAttachment) {
+          const uploadRes = await fetch(getApiUrl("/api/files/upload"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: sentAttachment.name,
+              type: sentAttachment.type,
+              dataUrl: sentAttachment.dataUrl
+            })
+          });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            if (uploadData.success) {
+              uploadedAttachment = {
+                name: sentAttachment.name,
+                size: sentAttachment.size,
+                type: sentAttachment.type,
+                dataUrl: `/api/files/download/${uploadData.fileId}`
+              };
+            }
+          }
+        }
+      } catch (uploadErr) {
+        console.error("Failed to upload attachment to server, fallback to inline raw mode:", uploadErr);
+      }
+
       let requestPayload: any = {
         id: clientMsgId,
         sender: userEmail,
         recipient: activeContactId,
         text: messageText,
-        imageUrl: sentImage || undefined,
-        attachment: sentAttachment || undefined
+        imageUrl: uploadedImageUrl,
+        attachment: uploadedAttachment
       };
 
       if (hasRecipientPublicKey && userKeyPair && currentContactObj?.publicKey) {
@@ -1094,8 +1151,8 @@ export default function ChatView({
             encryptedKeyForSender: encrypted.encryptedKeyForSender,
             encryptedKeyForFallback: encrypted.encryptedKeyForFallback,
             iv: encrypted.iv,
-            imageUrl: sentImage || undefined,
-            attachment: sentAttachment || undefined
+            imageUrl: uploadedImageUrl,
+            attachment: uploadedAttachment
           };
         } catch (encErr) {
           console.error("Encryption failed, sending as cleartext fallback:", encErr);
@@ -1535,13 +1592,13 @@ export default function ChatView({
                             {msg.imageUrl && (
                               <div className="rounded-[16px] overflow-hidden max-w-full cursor-zoom-in group/img relative">
                                 <img 
-                                  src={msg.imageUrl} 
+                                  src={resolveMediaUrl(msg.imageUrl)} 
                                   alt="Attachment" 
                                   className="w-full h-auto max-h-[220px] object-cover rounded-[14px] transition-transform duration-300 hover:scale-[1.02] block"
                                   referrerPolicy="no-referrer"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setFullscreenImage(msg.imageUrl || null);
+                                    setFullscreenImage(resolveMediaUrl(msg.imageUrl));
                                   }}
                                 />
                               </div>

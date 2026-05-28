@@ -1004,6 +1004,52 @@ app.post("/api/messages/delete", (req, res) => {
   return res.status(404).json({ success: false, error: "Сообщение не найдено." });
 });
 
+// Shared in-memory store for files to keep message JSON sizes tiny for 100% fast sync
+const uploadedFiles = new Map<string, { name: string; type: string; dataUrl: string }>();
+
+// Upload a file
+app.post("/api/files/upload", (req, res) => {
+  const { name, type, dataUrl } = req.body;
+  if (!name || !type || !dataUrl) {
+    return res.status(400).json({ success: false, error: "Недостаточно данных для загрузки." });
+  }
+
+  const fileId = `file-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+  uploadedFiles.set(fileId, { name, type, dataUrl });
+
+  return res.json({
+    success: true,
+    fileId,
+    downloadUrl: `/api/files/download/${fileId}`
+  });
+});
+
+// Download a file
+app.get("/api/files/download/:fileId", (req, res) => {
+  const { fileId } = req.params;
+  const file = uploadedFiles.get(fileId);
+  if (!file) {
+    return res.status(404).send("Файл не найден.");
+  }
+
+  try {
+    const base64Index = file.dataUrl.indexOf(";base64,");
+    if (base64Index === -1) {
+      return res.status(500).send("Некорректные данные файла.");
+    }
+
+    const base64Data = file.dataUrl.substring(base64Index + 8);
+    const buffer = Buffer.from(base64Data, "base64");
+
+    res.setHeader("Content-Type", file.type || "application/octet-stream");
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error("File download error:", err);
+    return res.status(500).send("Ошибка скачивания файла.");
+  }
+});
+
 // Send message
 app.post("/api/messages/send", async (req, res) => {
   const { sender, recipient, text, isEncrypted, encryptedKeyForRecipient, encryptedKeyForSender, encryptedKeyForFallback, iv, imageUrl, attachment } = req.body;
