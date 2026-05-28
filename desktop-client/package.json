@@ -1,0 +1,36 @@
+{
+  "name": "mesa-desktop-client",
+  "productName": "Mesa",
+  "version": "1.0.0",
+  "description": "Desktop PC client wrapper for Mesa Serenity Messenger",
+  "main": "main-electron.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.mesa.messenger",
+    "productName": "Mesa",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "main-electron.cjs",
+      "preload-electron.js"
+    ],
+    "win": {
+      "target": [
+        "dir",
+        "zip"
+      ]
+    }
+  }
+}

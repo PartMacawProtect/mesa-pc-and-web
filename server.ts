@@ -98,6 +98,9 @@ interface ServerMessage {
 }
 const globalMessages: ServerMessage[] = [];
 
+// Track deleted chats (for entire thread deletion)
+const deletedChats = new Map<string, Set<string>>(); // Map of userEmail -> Set of deletedContactEmails
+
 // Map of userEmail (lowercase) -> Set of contactEmails (lowercase)
 const userContactsMap = new Map<string, Set<string>>();
 
@@ -117,7 +120,8 @@ function saveDatabase() {
       globalMessages,
       userContactsMap: Array.from(userContactsMap.entries()).map(([k, v]) => [k, Array.from(v)]),
       contactRenameMap: Array.from(contactRenameMap.entries()).map(([k, v]) => [k, Array.from(v.entries())]),
-      deletedProfilesBackup: Array.from(deletedProfilesBackup.entries())
+      deletedProfilesBackup: Array.from(deletedProfilesBackup.entries()),
+      deletedChats: Array.from(deletedChats.entries()).map(([k, v]) => [k, Array.from(v)])
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
@@ -160,6 +164,13 @@ function loadDatabase() {
           deletedProfilesBackup.set(k, v);
         });
       }
+
+      if (data.deletedChats && Array.isArray(data.deletedChats)) {
+        data.deletedChats.forEach(([k, v]: any) => {
+          deletedChats.set(k, new Set(v));
+        });
+      }
+
       console.log("Mesa database successfully restored from file:", DB_FILE);
     }
   } catch (err) {
@@ -845,12 +856,22 @@ app.get("/api/messages/sync", (req, res) => {
     return res.status(400).json({ success: false, error: "Email пользователя обязателен." });
   }
 
+  const userDeletedChats = deletedChats.get(email) || new Set<string>();
+
   // Filter messages that belong to the user and are NOT soft deleted by them
   const userMessages = globalMessages.filter(msg => {
     const isSender = msg.sender.toLowerCase() === email;
     const isRecipient = msg.recipient.toLowerCase() === email;
     const isParticipant = isSender || isRecipient;
     if (!isParticipant) return false;
+    
+    // Определяем другого участника
+    const otherEmail = isSender ? msg.recipient.toLowerCase() : msg.sender.toLowerCase();
+    
+    // Filter out if user deleted entire chat with this contact
+    if (userDeletedChats.has(otherEmail)) {
+      return false;
+    }
     
     // Filter out if user soft deleted this specific message
     if (msg.deletedBy && msg.deletedBy.includes(email)) {
@@ -925,7 +946,7 @@ app.post("/api/chats/delete", (req, res) => {
   let databaseChanged = false;
 
   if (isDeleteForEveryone) {
-    // Delete messages from globally stored list entirely - удаляем в обратном порядке
+    // Delete messages from globally stored list entirely
     for (let i = globalMessages.length - 1; i >= 0; i--) {
       const m = globalMessages[i];
       const mSender = (m.sender || "").toLowerCase().trim();
@@ -944,8 +965,21 @@ app.post("/api/chats/delete", (req, res) => {
     if (userContactsMap.has(cEmail)) {
       userContactsMap.get(cEmail)!.delete(uEmail);
     }
+    // Удаляем из deleted chats (чтобы не было конфликта)
+    if (deletedChats.has(uEmail)) {
+      deletedChats.get(uEmail)!.delete(cEmail);
+    }
+    if (deletedChats.has(cEmail)) {
+      deletedChats.get(cEmail)!.delete(uEmail);
+    }
   } else {
-    // Soft delete messages only for this user - помечаем как удалённые для текущего пользователя
+    // Soft delete - добавляем в deleted chats для этого пользователя
+    if (!deletedChats.has(uEmail)) {
+      deletedChats.set(uEmail, new Set());
+    }
+    deletedChats.get(uEmail)!.add(cEmail);
+    
+    // Также помечаем сообщения как удалённые для резервности
     globalMessages.forEach(m => {
       const mSender = (m.sender || "").toLowerCase().trim();
       const mRecipient = (m.recipient || "").toLowerCase().trim();
@@ -965,10 +999,8 @@ app.post("/api/chats/delete", (req, res) => {
     }
   }
 
-  // Сохраняем только если произошли изменения
-  if (databaseChanged) {
-    saveDatabase();
-  }
+  // Всегда сохраняем
+  saveDatabase();
 
   return res.json({ success: true });
 });
