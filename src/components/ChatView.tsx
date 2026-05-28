@@ -1097,7 +1097,7 @@ export default function ChatView({
           });
           if (uploadRes.ok) {
             const uploadData = await uploadRes.json();
-            if (uploadData.success) {
+            if (uploadData.success && uploadData.fileId) {
               uploadedImageUrl = `/api/files/download/${uploadData.fileId}`;
             }
           }
@@ -1113,18 +1113,27 @@ export default function ChatView({
           });
           if (uploadRes.ok) {
             const uploadData = await uploadRes.json();
-            if (uploadData.success) {
+            if (uploadData.success && uploadData.fileId) {
+              // Важно! Создаём новый объект attachment с ссылкой на загруженный файл
               uploadedAttachment = {
                 name: sentAttachment.name,
                 size: sentAttachment.size,
                 type: sentAttachment.type,
                 dataUrl: `/api/files/download/${uploadData.fileId}`
               };
+            } else {
+              // Если загрузка не удалась, используем исходный attachment (inline)
+              uploadedAttachment = sentAttachment;
             }
+          } else {
+            // Если запрос не ОК, используем исходный attachment
+            uploadedAttachment = sentAttachment;
           }
         }
       } catch (uploadErr) {
         console.error("Failed to upload attachment to server, fallback to inline raw mode:", uploadErr);
+        // В случае ошибки отправляем как inline
+        uploadedAttachment = sentAttachment;
       }
 
       let requestPayload: any = {
@@ -1169,6 +1178,26 @@ export default function ChatView({
       if (!response.ok || !data.success) {
         console.error("Failed to persist message on server");
       } else {
+        // Обновляем локальное сообщение с uploaded attachment/image если они были загружены
+        if (uploadedAttachment || uploadedImageUrl) {
+          setMessagesMap(prev => {
+            const msgs = prev[activeContactId] || [];
+            const updatedMsgs = msgs.map(m => {
+              if (m.id === clientMsgId) {
+                return {
+                  ...m,
+                  imageUrl: uploadedImageUrl || m.imageUrl,
+                  attachment: uploadedAttachment || m.attachment
+                };
+              }
+              return m;
+            });
+            return {
+              ...prev,
+              [activeContactId]: updatedMsgs
+            };
+          });
+        }
         // Fetch new state immediately to align optimistic and server states beautifully without delay!
         syncMetadataRef.current?.();
       }

@@ -922,8 +922,10 @@ app.post("/api/chats/delete", (req, res) => {
   const cEmail = contactEmail.toLowerCase().trim();
   const isDeleteForEveryone = deleteForEveryone === true || deleteForEveryone === "true";
 
+  let databaseChanged = false;
+
   if (isDeleteForEveryone) {
-    // Delete messages from globally stored list entirely
+    // Delete messages from globally stored list entirely - удаляем в обратном порядке
     for (let i = globalMessages.length - 1; i >= 0; i--) {
       const m = globalMessages[i];
       const mSender = (m.sender || "").toLowerCase().trim();
@@ -932,10 +934,18 @@ app.post("/api/chats/delete", (req, res) => {
                     (mSender === cEmail && mRecipient === uEmail);
       if (match) {
         globalMessages.splice(i, 1);
+        databaseChanged = true;
       }
     }
+    // Удаляем контакт у обоих пользователей
+    if (userContactsMap.has(uEmail)) {
+      userContactsMap.get(uEmail)!.delete(cEmail);
+    }
+    if (userContactsMap.has(cEmail)) {
+      userContactsMap.get(cEmail)!.delete(uEmail);
+    }
   } else {
-    // Soft delete messages only for this user
+    // Soft delete messages only for this user - помечаем как удалённые для текущего пользователя
     globalMessages.forEach(m => {
       const mSender = (m.sender || "").toLowerCase().trim();
       const mRecipient = (m.recipient || "").toLowerCase().trim();
@@ -945,21 +955,20 @@ app.post("/api/chats/delete", (req, res) => {
         if (!m.deletedBy) m.deletedBy = [];
         if (!m.deletedBy.includes(uEmail)) {
           m.deletedBy.push(uEmail);
+          databaseChanged = true;
         }
       }
     });
-  }
-
-  // Also remove contact relationships from local userContactsMap of user so it disappears from left list
-  if (userContactsMap.has(uEmail)) {
-    userContactsMap.get(uEmail)!.delete(cEmail);
-  }
-  if (isDeleteForEveryone) {
-    if (userContactsMap.has(cEmail)) {
-      userContactsMap.get(cEmail)!.delete(uEmail);
+    // Удаляем контакт только у текущего пользователя
+    if (userContactsMap.has(uEmail)) {
+      userContactsMap.get(uEmail)!.delete(cEmail);
     }
   }
-  saveDatabase();
+
+  // Сохраняем только если произошли изменения
+  if (databaseChanged) {
+    saveDatabase();
+  }
 
   return res.json({ success: true });
 });
