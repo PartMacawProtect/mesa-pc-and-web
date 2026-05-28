@@ -354,6 +354,7 @@ export default function ChatView({
 
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [showScrollDownBtn, setShowScrollDownBtn] = useState(false);
+  const [isContactsLoaded, setIsContactsLoaded] = useState(false);
 
   // Synchronize dynamic message seen counts for unread badge metrics
   const [lastSeenCount, setLastSeenCount] = useState<Record<string, number>>(() => {
@@ -569,6 +570,7 @@ export default function ChatView({
         if (contactsData.success && isMounted) {
           const fetchedContacts: Contact[] = contactsData.contacts;
           setContacts(fetchedContacts);
+          setIsContactsLoaded(true);
 
           // Auto-select first contact if activeContactId is null but we have contacts (only on desktop and only initially)
           if (fetchedContacts.length > 0 && !hasAutoSelectedRef.current) {
@@ -849,9 +851,9 @@ export default function ChatView({
 
   // Auto-close active chat pane if the other user deletes the chat for everyone (removing contact relationship)
   useEffect(() => {
-    if (activeContactId) {
+    if (activeContactId && isContactsLoaded) {
       const isAi = activeContactId === "elena@mesa.com" || activeContactId.endsWith("@ai");
-      if (!isAi && contacts.length > 0) {
+      if (!isAi) {
         const stillExists = contacts.some(c => c.id.toLowerCase() === activeContactId.toLowerCase());
         if (!stillExists) {
           setActiveContactId(null);
@@ -866,7 +868,7 @@ export default function ChatView({
         }
       }
     }
-  }, [contacts, activeContactId, selectedContactDetailedId, language]);
+  }, [contacts, activeContactId, selectedContactDetailedId, language, isContactsLoaded]);
 
   // Context actions execution methods
   const handlePinMessage = async (msg: Message) => {
