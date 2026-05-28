@@ -227,6 +227,7 @@ export default function ChatView({
 
   const isSyncingProfileRef = useRef(false);
   const syncMetadataRef = useRef<() => Promise<void>>();
+  const deletedMsgIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!userEmail) return;
@@ -694,7 +695,11 @@ export default function ChatView({
               
               Object.keys(prev).forEach((contactId) => {
                 const prevMsgs = prev[contactId] || [];
-                const optimisticMsgs = prevMsgs.filter(m => m.sender === "user" && (String(m.id).startsWith("msg-client-") || String(m.id).startsWith("optimistic-")));
+                const optimisticMsgs = prevMsgs.filter(m => 
+                  m.sender === "user" && 
+                  !deletedMsgIdsRef.current.has(String(m.id)) &&
+                  (String(m.id).startsWith("msg-client-") || String(m.id).startsWith("optimistic-"))
+                );
                 
                 if (optimisticMsgs.length > 0) {
                   const currentMsgs = merged[contactId] || [];
@@ -878,6 +883,7 @@ export default function ChatView({
 
   const handleDeleteMessage = async (msg: Message, forEveryone: boolean) => {
     try {
+      deletedMsgIdsRef.current.add(String(msg.id));
       const response = await fetch(getApiUrl("/api/messages/delete"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1174,13 +1174,38 @@ app.get("/api/download/desktop-zip", async (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProd = process.env.NODE_ENV === "production";
+  const hasDist = fs.existsSync(path.join(process.cwd(), "dist", "index.html"));
+
+  if (!isProd || !hasDist) {
+    console.log("Starting server with Vite developer middleware...");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
+
+    // Explicit fallback for index.html in development/Vite middleware mode
+    app.get("*", async (req, res, next) => {
+      if (req.path.startsWith("/api")) {
+        return next();
+      }
+      try {
+        const url = req.originalUrl;
+        const htmlPath = path.join(process.cwd(), "index.html");
+        if (fs.existsSync(htmlPath)) {
+          let html = fs.readFileSync(htmlPath, "utf-8");
+          html = await vite.transformIndexHtml(url, html);
+          res.status(200).set({ "Content-Type": "text/html" }).end(html);
+        } else {
+          next();
+        }
+      } catch (err) {
+        next(err);
+      }
+    });
   } else {
+    console.log("Starting server in production static mode...");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
